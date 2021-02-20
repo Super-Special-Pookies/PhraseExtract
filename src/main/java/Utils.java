@@ -1,30 +1,38 @@
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.wltea.analyzer.lucene.IKAnalyzer;
 
-import java.io.File;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 class Utils {
     private final static String punctuationFlag = GlobalSetting.punctuationFlag;
+    private static FileSystem fileSystem = null;
 
-    private static boolean deleteFile(File dirFile) {
-        if (!dirFile.exists()) {
-            return false;
+    static void setFileSystem(FileSystem fileSystem) {
+        Utils.fileSystem = fileSystem;
+    }
+
+    static List<String> readLines(Path path) throws IOException {
+        List<String> lineList = new ArrayList<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(fileSystem.open(path)));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            lineList.add(line);
         }
-        if (dirFile.isFile()) {
-            return dirFile.delete();
-        } else {
-            for (File file : Objects.requireNonNull(dirFile.listFiles())) {
-                deleteFile(file);
-            }
-        }
-        return dirFile.delete();
+        return lineList;
+    }
+
+    static boolean checkFileSystem() {
+        return fileSystem == null;
     }
 
 

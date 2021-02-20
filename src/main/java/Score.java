@@ -1,5 +1,5 @@
-import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.Text;
@@ -9,28 +9,39 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
-import java.io.File;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
 public class Score {
     private final static String tempPath = GlobalSetting.tempPath;
 
-    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException {
-
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
         String mergeFilesPath = args[0];
-        Job scoreJob = Job.getInstance(new Configuration(), "ScoreCalculation");
+
+        FileSystem fileSystem = FileSystem.get(new URI(args[0]), conf);
+        Utils.setFileSystem(fileSystem);
+
+        Job scoreJob = Job.getInstance(conf, "ScoreCalculation");
         scoreJob.setJarByClass(Score.class);
         scoreJob.setMapperClass(NormalMapper.class);
         scoreJob.setCombinerClass(SumCombiner.class);
         scoreJob.setReducerClass(SumReducer.class);
         scoreJob.setOutputKeyClass(Text.class);
         scoreJob.setOutputValueClass(DoubleWritable.class);
+        scoreJob.addCacheFile(new URI(
+                new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]).toString()));
+        scoreJob.addCacheFile(new URI(
+                new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3]).toString()));
         FileInputFormat.addInputPath(scoreJob, new Path(mergeFilesPath));
         FileOutputFormat.setOutputPath(scoreJob, new Path(tempPath));
 
-        Job sortJob = Job.getInstance(new Configuration(), "ScoreCalculation");
+        Job sortJob = Job.getInstance(conf, "ScoreCalculation");
         sortJob.setJarByClass(Score.class);
         sortJob.setMapperClass(SortMapper.class);
         sortJob.setReducerClass(SortReducer.class);
@@ -41,8 +52,8 @@ public class Score {
         FileInputFormat.addInputPath(sortJob, new Path(tempPath));
         FileOutputFormat.setOutputPath(sortJob, new Path(args[1]));
 
-        FileUtils.deleteDirectory(new File(tempPath));
-        FileUtils.deleteDirectory(new File(args[1]));
+        fileSystem.delete(new Path(GlobalSetting.tempPath), true);
+        fileSystem.delete(new Path(args[1]), true);
         if (scoreJob.waitForCompletion(true)) {
             sortJob.waitForCompletion(true);
         }
@@ -84,19 +95,32 @@ public class Score {
         // Combine: (Text key, DoubleWritable value) -> emit: (key, sum)
         private DoubleWritable result = new DoubleWritable();
 
-        @Override
-        public void setup(Context context)
-                throws IOException, InterruptedException {
-            super.setup(context);
-            File PreSegmentEntropyFile = FileUtils.getFile(
-                    new File(GlobalSetting.PreSegmentEntropyPath), GlobalSetting.inputFilesNameList[2]
-            );
-            File PostSegmentEntropyFile = FileUtils.getFile(
-                    new File(GlobalSetting.PostSegmentEntropyPath), GlobalSetting.inputFilesNameList[3]
-            );
-            List<String> PreSegmentEntropy = FileUtils.readLines(PreSegmentEntropyFile);
-            List<String> PostSegmentEntropy = FileUtils.readLines(PostSegmentEntropyFile);
+        private List<String> readCache(Configuration conf, URI localCacheFile) throws IOException {
+            List<String> res = new ArrayList<>();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    FileSystem.get(conf).open(new Path(localCacheFile.getPath()))));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                res.add(line);
+            }
+            return res;
+        }
 
+        public void setup(Context context)
+                throws IOException, InterruptedException, NullPointerException {
+            super.setup(context);
+            Configuration conf = context.getConfiguration();
+            URI PreSegmentEntropyFile = context.getCacheFiles()[0];
+            URI PostSegmentEntropyFile = context.getCacheFiles()[1];
+            List<String> PreSegmentEntropy = readCache(conf, PreSegmentEntropyFile);
+            List<String> PostSegmentEntropy = readCache(conf, PostSegmentEntropyFile);
+//            List<String> PreSegmentEntropy = Utils.readLines(
+//                    new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2])
+//            );
+//            List<String> PostSegmentEntropy = Utils.readLines(
+//                    new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3])
+//            );
+//
             for (String line : PreSegmentEntropy) {
                 String[] tempSplitList = line.split("\t");
                 PreSegmentEntropyMap.put(tempSplitList[0], Double.parseDouble(tempSplitList[1]));
@@ -106,6 +130,7 @@ public class Score {
                 String[] tempSplitList = line.split("\t");
                 PostSegmentEntropyMap.put(tempSplitList[0], Double.parseDouble(tempSplitList[1]));
             }
+
         }
 
         public void reduce(Text key, Iterable<DoubleWritable> values,

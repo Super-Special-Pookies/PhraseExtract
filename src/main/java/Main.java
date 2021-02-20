@@ -1,5 +1,6 @@
-import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.IntWritable;
@@ -8,15 +9,20 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
-import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 
 public class Main {
 
-    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException {
+    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException, URISyntaxException {
         Configuration conf = new Configuration();
 
-        Job tempJob = Job.getInstance(conf, "preWordSegmentEntropyJob");
+        FileSystem fileSystem = FileSystem.get(new URI(args[0]), conf);
+        Utils.setFileSystem(fileSystem);
+
+        // PMI
+        Job tempJob = Job.getInstance(conf, "tempJob");
         tempJob.setJarByClass(PMI.class);
         tempJob.setMapperClass(PMI.PrePlusTokenizerMapper.class);
         tempJob.setCombinerClass(PMI.SumCombiner.class);
@@ -39,8 +45,8 @@ public class Main {
         FileInputFormat.addInputPath(PMIJob, new Path(GlobalSetting.tempPath + "/part-r-00000"));
         FileOutputFormat.setOutputPath(PMIJob, new Path(GlobalSetting.PMIPath));
 
-        FileUtils.deleteDirectory(new File(GlobalSetting.tempPath));
-        FileUtils.deleteDirectory(new File(GlobalSetting.PMIPath));
+        fileSystem.delete(new Path(GlobalSetting.tempPath), true);
+        fileSystem.delete(new Path(GlobalSetting.PMIPath), true);
 
         if (tempJob.waitForCompletion(true)) {
             PMIJob.waitForCompletion(true);
@@ -76,16 +82,15 @@ public class Main {
         FileInputFormat.addInputPath(postWordEntropyJob, new Path(args[0]));
         FileOutputFormat.setOutputPath(postWordEntropyJob, new Path(GlobalSetting.PostEntropyPath));
 
-        FileUtils.deleteDirectory(new File(GlobalSetting.PreEntropyPath));
+        fileSystem.delete(new Path(GlobalSetting.PreEntropyPath), true);
         preWordEntropyJob.submit();
-        FileUtils.deleteDirectory(new File(GlobalSetting.PostEntropyPath));
+        fileSystem.delete(new Path(GlobalSetting.PostEntropyPath), true);
         postWordEntropyJob.submit();
 
         boolean flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete();
         while (!flag) {
             flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete();
         }
-
 
         // preWordSegmentEntropyJob
         Job preWordSegmentEntropyJob = Job.getInstance(conf, "preWordSegmentEntropyJob");
@@ -117,10 +122,10 @@ public class Main {
         FileInputFormat.addInputPath(postWordSegmentEntropyJob, new Path(args[0]));
         FileOutputFormat.setOutputPath(postWordSegmentEntropyJob, new Path(GlobalSetting.PostSegmentEntropyPath));
 
-        FileUtils.deleteDirectory(new File(GlobalSetting.PreSegmentEntropyPath));
-        preWordSegmentEntropyJob.submit();
-        FileUtils.deleteDirectory(new File(GlobalSetting.PostSegmentEntropyPath));
+        fileSystem.delete(new Path(GlobalSetting.PostSegmentEntropyPath), true);
         postWordSegmentEntropyJob.submit();
+        fileSystem.delete(new Path(GlobalSetting.PreSegmentEntropyPath), true);
+        preWordSegmentEntropyJob.submit();
 
         flag = preWordSegmentEntropyJob.isComplete() & postWordSegmentEntropyJob.isComplete();
         while (!flag) {
@@ -128,36 +133,39 @@ public class Main {
         }
 
         // Merge File to Score
-        FileUtils.deleteDirectory(new File(GlobalSetting.MergePath));
-        File MergeDirectory = new File(GlobalSetting.MergePath);
-        assert MergeDirectory.mkdir();
+        fileSystem.delete(new Path(GlobalSetting.MergePath), true);
+        fileSystem.mkdirs(new Path(GlobalSetting.MergePath));
 
-        File PMIScoreFile = FileUtils.getFile(new File(GlobalSetting.PMIPath), "part-r-00000");
-        File PreEntropyFile = FileUtils.getFile(
-                new File(GlobalSetting.PreEntropyPath), GlobalSetting.inputFilesNameList[0]
-        );
-        File PostEntropyFile = FileUtils.getFile(
-                new File(GlobalSetting.PostEntropyPath), GlobalSetting.inputFilesNameList[1]
+        FileUtil.copy(
+                fileSystem, new Path(GlobalSetting.PMIPath, "part-r-00000"),
+                fileSystem, new Path(GlobalSetting.MergePath), false, conf
         );
 
-        FileUtils.copyFileToDirectory(PMIScoreFile, MergeDirectory);
-        FileUtils.copyFileToDirectory(PreEntropyFile, MergeDirectory);
-        FileUtils.copyFileToDirectory(PostEntropyFile, MergeDirectory);
-
-        // Cache File: Segment Entropy
-        FileUtils.deleteDirectory(new File(GlobalSetting.CachePath));
-        File CacheDirectory = new File(GlobalSetting.CachePath);
-        assert CacheDirectory.mkdir();
-
-        File PreSegmentEntropyFile = FileUtils.getFile(
-                new File(GlobalSetting.PreSegmentEntropyPath), GlobalSetting.inputFilesNameList[2]
+        FileUtil.copy(
+                fileSystem, new Path(GlobalSetting.PreEntropyPath, GlobalSetting.inputFilesNameList[0]),
+                fileSystem, new Path(GlobalSetting.MergePath), false, conf
         );
-        File PostSegmentEntropyFile = FileUtils.getFile(
-                new File(GlobalSetting.PostSegmentEntropyPath), GlobalSetting.inputFilesNameList[3]
-        );
-        FileUtils.copyFileToDirectory(PreSegmentEntropyFile, CacheDirectory);
-        FileUtils.copyFileToDirectory(PostSegmentEntropyFile, CacheDirectory);
 
+        FileUtil.copy(
+                fileSystem, new Path(GlobalSetting.PostEntropyPath, GlobalSetting.inputFilesNameList[1]),
+                fileSystem, new Path(GlobalSetting.MergePath), false, conf
+        );
+
+
+        // Cache File: Segment Entropy from remote to local
+        fileSystem.delete(new Path(GlobalSetting.CachePath), true);
+        fileSystem.mkdirs(new Path(GlobalSetting.CachePath));
+
+
+        FileUtil.copy(
+                fileSystem, new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]),
+                fileSystem, new Path(GlobalSetting.CachePath), false, conf
+        );
+
+        FileUtil.copy(
+                fileSystem, new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3]),
+                fileSystem, new Path(GlobalSetting.CachePath), false, conf
+        );
 
         Job scoreJob = Job.getInstance(conf, "ScoreCalculation");
         scoreJob.setJarByClass(Score.class);
@@ -168,8 +176,12 @@ public class Main {
         scoreJob.setOutputValueClass(DoubleWritable.class);
         FileInputFormat.addInputPath(scoreJob, new Path(GlobalSetting.MergePath));
         FileOutputFormat.setOutputPath(scoreJob, new Path(GlobalSetting.tempPath));
+        scoreJob.addCacheFile(new URI(
+                new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]).toString()));
+        scoreJob.addCacheFile(new URI(
+                new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3]).toString()));
 
-        Job sortJob = Job.getInstance(conf, "ScoreCalculation");
+        Job sortJob = Job.getInstance(conf, "ScoreSort");
         sortJob.setJarByClass(Score.class);
         sortJob.setMapperClass(Score.SortMapper.class);
         sortJob.setReducerClass(Score.SortReducer.class);
@@ -180,8 +192,8 @@ public class Main {
         FileInputFormat.addInputPath(sortJob, new Path(GlobalSetting.tempPath));
         FileOutputFormat.setOutputPath(sortJob, new Path(args[1]));
 
-        FileUtils.deleteDirectory(new File(GlobalSetting.tempPath));
-        FileUtils.deleteDirectory(new File(args[1]));
+        fileSystem.delete(new Path(GlobalSetting.tempPath), true);
+        fileSystem.delete(new Path(args[1]), true);
 
         if (scoreJob.waitForCompletion(true)) {
             sortJob.waitForCompletion(true);

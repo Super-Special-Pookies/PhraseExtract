@@ -6,5 +6,5 @@ with xlrd.open_workbook(r'FinancialDatasets.xlsx') as workbook:
     for rown in range(1, sheet.nrows):
         context = sheet.cell_value(rown, 2)
 
-        with open('data/%d.txt'%rown, 'w') as f:
+        with open('Mergedata/merge.txt', 'a+') as f:
             f.write(context)
