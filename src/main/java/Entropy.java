@@ -11,95 +11,108 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputCommitter;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
-import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.TokenStream;
-import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
-import org.wltea.analyzer.lucene.IKAnalyzer;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 
 
 public class Entropy {
-    private final static String concatFlagForWord = "&";
-    private final static String concatFlagForPair = "#";
-    private final static String punctuationFlag = "符号";
-    private final static int filterFrequencyLimit = 10;
+
+    private final static String concatFlagForPair = GlobalSetting.concatFlagForPair;
+    private final static String concatFlagForWord = GlobalSetting.concatFlagForWord;
+    private final static String punctuationFlag = GlobalSetting.punctuationFlag;
+    private final static int filterFrequencyLimit = GlobalSetting.filterFrequencyLimit;
 
 
     public static void main(String[] args) throws Exception {
-        // preWordEntropyJob
+
+        ArrayList<String> outputPathsList = generateOutputPathsList(args[1], 4);
         Configuration conf = new Configuration();
+
+
+        // preWordEntropyJob
         Job preWordEntropyJob = Job.getInstance(conf, "preWordEntropyJob");
         preWordEntropyJob.setJarByClass(Entropy.class);
         preWordEntropyJob.setMapperClass(PreTokenizerMapper.class);
         preWordEntropyJob.setCombinerClass(SumCombiner.class);
         preWordEntropyJob.setPartitionerClass(ConcatWordsSamePartitioner.class);
         preWordEntropyJob.setReducerClass(FrequencyCombinationReducer.class);
+        preWordEntropyJob.setMapOutputKeyClass(Text.class);
+        preWordEntropyJob.setMapOutputValueClass(IntWritable.class);
         preWordEntropyJob.setOutputKeyClass(Text.class);
-        preWordEntropyJob.setOutputValueClass(IntWritable.class);
+        preWordEntropyJob.setOutputValueClass(Text.class);
         preWordEntropyJob.setOutputFormatClass(PreWordEntropyOutputFormat.class);
         FileInputFormat.addInputPath(preWordEntropyJob, new Path(args[0]));
-        FileOutputFormat.setOutputPath(preWordEntropyJob, new Path(args[1]));
+        FileOutputFormat.setOutputPath(preWordEntropyJob, new Path(outputPathsList.get(0)));
 
         // postWordEntropyJob
-        Job postWordEntropyJob = Job.getInstance(new Configuration(), "preWordEntropyJob");
+        Job postWordEntropyJob = Job.getInstance(conf, "postWordEntropyJob");
         postWordEntropyJob.setJarByClass(Entropy.class);
         postWordEntropyJob.setMapperClass(PostTokenizerMapper.class);
         postWordEntropyJob.setCombinerClass(SumCombiner.class);
         postWordEntropyJob.setPartitionerClass(ConcatWordsSamePartitioner.class);
         postWordEntropyJob.setReducerClass(FrequencyCombinationReducer.class);
+        postWordEntropyJob.setMapOutputKeyClass(Text.class);
+        postWordEntropyJob.setMapOutputValueClass(IntWritable.class);
         postWordEntropyJob.setOutputKeyClass(Text.class);
-        postWordEntropyJob.setOutputValueClass(IntWritable.class);
+        postWordEntropyJob.setOutputValueClass(Text.class);
         postWordEntropyJob.setOutputFormatClass(PostWordEntropyOutputFormat.class);
         FileInputFormat.addInputPath(postWordEntropyJob, new Path(args[0]));
-        FileOutputFormat.setOutputPath(postWordEntropyJob, new Path(args[1]));
+        FileOutputFormat.setOutputPath(postWordEntropyJob, new Path(outputPathsList.get(1)));
 
+        // preWordSegmentEntropyJob
+        Job preWordSegmentEntropyJob = Job.getInstance(conf, "preWordSegmentEntropyJob");
+        preWordSegmentEntropyJob.setJarByClass(Entropy.class);
+        preWordSegmentEntropyJob.setMapperClass(PreSegmentTokenizerMapper.class);
+        preWordSegmentEntropyJob.setCombinerClass(SumCombiner.class);
+        preWordSegmentEntropyJob.setPartitionerClass(ConcatWordsSamePartitioner.class);
+        preWordSegmentEntropyJob.setReducerClass(FrequencyCombinationReducer.class);
+        preWordSegmentEntropyJob.setMapOutputKeyClass(Text.class);
+        preWordSegmentEntropyJob.setMapOutputValueClass(IntWritable.class);
+        preWordSegmentEntropyJob.setOutputKeyClass(Text.class);
+        preWordSegmentEntropyJob.setOutputValueClass(Text.class);
+        preWordSegmentEntropyJob.setOutputFormatClass(PreWordSegmentEntropyOutputFormat.class);
+        FileInputFormat.addInputPath(preWordSegmentEntropyJob, new Path(args[0]));
+        FileOutputFormat.setOutputPath(preWordSegmentEntropyJob, new Path(outputPathsList.get(2)));
+
+        // postWordSegmentEntropyJob
+        Job postWordSegmentEntropyJob = Job.getInstance(conf, "postWordSegmentEntropyJob");
+        postWordSegmentEntropyJob.setJarByClass(Entropy.class);
+        postWordSegmentEntropyJob.setMapperClass(PostSegmentTokenizerMapper.class);
+        postWordSegmentEntropyJob.setCombinerClass(SumCombiner.class);
+        postWordSegmentEntropyJob.setPartitionerClass(ConcatWordsSamePartitioner.class);
+        postWordSegmentEntropyJob.setReducerClass(FrequencyCombinationReducer.class);
+        postWordSegmentEntropyJob.setMapOutputKeyClass(Text.class);
+        postWordSegmentEntropyJob.setMapOutputValueClass(IntWritable.class);
+        postWordSegmentEntropyJob.setOutputKeyClass(Text.class);
+        postWordSegmentEntropyJob.setOutputValueClass(Text.class);
+        postWordSegmentEntropyJob.setOutputFormatClass(PostWordSegmentEntropyOutputFormat.class);
+        FileInputFormat.addInputPath(postWordSegmentEntropyJob, new Path(args[0]));
+        FileOutputFormat.setOutputPath(postWordSegmentEntropyJob, new Path(outputPathsList.get(3)));
+
+        preWordSegmentEntropyJob.submit();
+        postWordSegmentEntropyJob.submit();
         preWordEntropyJob.submit();
         postWordEntropyJob.submit();
 
-        boolean flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete();
+
+        boolean flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete() &
+                preWordSegmentEntropyJob.isComplete() & postWordSegmentEntropyJob.isComplete();
         while (!flag) {
-            flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete();
+            flag = preWordEntropyJob.isComplete() & postWordEntropyJob.isComplete() &
+                    preWordSegmentEntropyJob.isComplete() & postWordSegmentEntropyJob.isComplete();
         }
+
         System.exit(0);
     }
 
-
-    private static List<String> getAnalyzedStr(Analyzer analyzer, String content) throws Exception {
-        TokenStream stream = analyzer.tokenStream(null, new StringReader(content));
-        CharTermAttribute term = stream.addAttribute(CharTermAttribute.class);
-
-        List<String> result = new ArrayList<>();
-        while (stream.incrementToken()) {
-            result.add(term.toString());
+    private static ArrayList<String> generateOutputPathsList(String rootPath, int pathNum) {
+        ArrayList<String> results = new ArrayList<>();
+        for (int i = 0; i < pathNum; i++) {
+            results.add(rootPath + i);
         }
-
-        return result;
-    }
-
-    private static boolean hasPunctuation(String content) {
-        return content.length() != content.replaceAll("[\\pP‘’“”]", "").length();
-    }
-
-    private static String replacePunctuationWithFlags(String content) {
-        return punctuationFlag + content.replaceAll("[\\pP‘’“”]", punctuationFlag) + punctuationFlag;
-    }
-
-    private static List<String> splitLine(Text value) {
-        String line = replacePunctuationWithFlags(value.toString());
-        Analyzer analyzer = new IKAnalyzer();
-        List<String> splitText = null;
-        try {
-            splitText = getAnalyzedStr(analyzer, line);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        assert splitText != null;
-
-        return splitText;
+        return results;
     }
 
 
@@ -111,7 +124,7 @@ public class Entropy {
 
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
-            List<String> splitText = splitLine(value);
+            List<String> splitText = Utils.splitLine(value);
 
             for (int i = 1; i + 1 < splitText.size(); i++) {
                 String wordPairLeft = splitText.get(i);
@@ -137,7 +150,7 @@ public class Entropy {
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
 
-            List<String> splitText = splitLine(value);
+            List<String> splitText = Utils.splitLine(value);
             for (int i = 0; i < splitText.size() - 2; i++) {
                 String wordPairLeft = splitText.get(i);
                 String wordPairRight = splitText.get(i + 1);
@@ -149,6 +162,53 @@ public class Entropy {
                 // emit: (<ConcatWords, postWord>, 1)
                 String concatWords = wordPairLeft + concatFlagForWord + wordPairRight;
                 word.set(concatWords + concatFlagForPair + splitText.get(i + 2));
+                context.write(word, one);
+            }
+        }
+    }
+
+    public static class PreSegmentTokenizerMapper
+            extends Mapper<Object, Text, Text, IntWritable> {
+        // Map: (Object key, Text line) -> emit: (<Segment, preWord >, 1)
+        private final static IntWritable one = new IntWritable(1);
+        private Text word = new Text();// 输出的key类型
+
+        public void map(Object key, Text value, Context context
+        ) throws IOException, InterruptedException {
+            List<String> splitText = Utils.splitLine(value);
+
+            for (int i = 1; i < splitText.size(); i++) {
+                String wordPairLeft = splitText.get(i);
+
+                if (punctuationFlag.equals(wordPairLeft)) {
+                    continue;
+                }
+                // emit: (<Segment, preWord>, 1)
+                word.set(wordPairLeft + concatFlagForPair + splitText.get(i - 1));
+                context.write(word, one);
+            }
+        }
+    }
+
+
+    public static class PostSegmentTokenizerMapper
+            extends Mapper<Object, Text, Text, IntWritable> {
+        // Map: (Object key, Text line) -> emit: (<Segment, postWord >, 1)
+        private final static IntWritable one = new IntWritable(1);
+        private Text word = new Text();// 输出的key类型
+
+        public void map(Object key, Text value, Context context
+        ) throws IOException, InterruptedException {
+            List<String> splitText = Utils.splitLine(value);
+
+            for (int i = 0; i + 1 < splitText.size(); i++) {
+                String wordPairRight = splitText.get(i);
+
+                if (punctuationFlag.equals(wordPairRight)) {
+                    continue;
+                }
+                // emit: (<Segment, postWord>, 1)
+                word.set(wordPairRight + concatFlagForPair + splitText.get(i + 1));
                 context.write(word, one);
             }
         }
@@ -187,42 +247,48 @@ public class Entropy {
             extends Reducer<Text, IntWritable, Text, Text> {
         // Combine: (Text key, IntWritable value) -> emit: (key, sum)
         private String pastConcatWords = null;                     // Record the Concat Words
-        private String emitOutput = "";
+        //        private String emitOutput = "";
         private int sumConcatWords = 0;
+        private double score = 0;
 
         public void reduce(Text key, Iterable<IntWritable> values,
                            Context context
         ) throws IOException, InterruptedException {
             String[] stringLists = key.toString().split(concatFlagForPair);
             String concatWords = stringLists[0];
-            String neighbourWords = stringLists[1];
+//            String neighbourWords = stringLists[1];
             if (null == pastConcatWords) {
                 pastConcatWords = concatWords;
             }
 
             if (!concatWords.equals(pastConcatWords)) {
                 if (sumConcatWords >= filterFrequencyLimit) {
-                    emitOutput = ":" + sumConcatWords + ";" + emitOutput;
-                    context.write(new Text(pastConcatWords), new Text(emitOutput));
+//                    emitOutput = ":" + sumConcatWords + ";" + emitOutput;
+                    score = -score / sumConcatWords + Math.log(sumConcatWords);
+                    context.write(new Text(pastConcatWords), new Text(String.valueOf(score)));
                 }
+
                 // clear
                 pastConcatWords = concatWords;
-                emitOutput = "";
+//                emitOutput = "";
                 sumConcatWords = 0;
+                score = 0;
             }
 
             int count = 0;
             for (IntWritable val : values) {
                 count += val.get();
             }
-            emitOutput += neighbourWords + ":" + count + ";";
+//            emitOutput += neighbourWords + ":" + count + ";";
             sumConcatWords += count;
+            score += Math.log(count) * count;
         }
 
         public void cleanup(Context context) throws IOException, InterruptedException {
             if (pastConcatWords != null && sumConcatWords >= filterFrequencyLimit) {
-                emitOutput = ":" + sumConcatWords + ";" + emitOutput;
-                context.write(new Text(pastConcatWords), new Text(emitOutput));
+//                emitOutput = ":" + sumConcatWords + ";" + emitOutput;
+                score = score / sumConcatWords + Math.log(sumConcatWords);
+                context.write(new Text(pastConcatWords), new Text(String.valueOf(score)));
             }
             super.cleanup(context);
         }
@@ -241,6 +307,22 @@ public class Entropy {
         public Path getDefaultWorkFile(TaskAttemptContext context, String extension) throws IOException {
             FileOutputCommitter committer = (FileOutputCommitter) getOutputCommitter(context);
             return new Path(committer.getWorkPath(), "PostWordEntropy.txt");//getOutputName(context)
+        }
+    }
+
+    public static class PreWordSegmentEntropyOutputFormat extends TextOutputFormat {
+        @Override
+        public Path getDefaultWorkFile(TaskAttemptContext context, String extension) throws IOException {
+            FileOutputCommitter committer = (FileOutputCommitter) getOutputCommitter(context);
+            return new Path(committer.getWorkPath(), "PreWordSegmentEntropy.txt");
+        }
+    }
+
+    public static class PostWordSegmentEntropyOutputFormat extends TextOutputFormat {
+        @Override
+        public Path getDefaultWorkFile(TaskAttemptContext context, String extension) throws IOException {
+            FileOutputCommitter committer = (FileOutputCommitter) getOutputCommitter(context);
+            return new Path(committer.getWorkPath(), "PostWordSegmentEntropy.txt");
         }
     }
 }

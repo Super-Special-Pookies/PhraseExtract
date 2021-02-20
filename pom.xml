@@ -90,7 +90,7 @@
             <scope>test</scope>
         </dependency>
 
-        <!--https://github.com/wks/ik-analyzer-->
+        <!-- https://github.com/wks/ik-analyzer -->
         <dependency>
             <groupId>org.wltea.ik-analyzer</groupId>
             <artifactId>ik-analyzer</artifactId>
