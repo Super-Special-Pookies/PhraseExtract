@@ -156,7 +156,6 @@ public class Main {
         fileSystem.delete(new Path(GlobalSetting.CachePath), true);
         fileSystem.mkdirs(new Path(GlobalSetting.CachePath));
 
-
         FileUtil.copy(
                 fileSystem, new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]),
                 fileSystem, new Path(GlobalSetting.CachePath), false, conf
@@ -177,9 +176,11 @@ public class Main {
         FileInputFormat.addInputPath(scoreJob, new Path(GlobalSetting.MergePath));
         FileOutputFormat.setOutputPath(scoreJob, new Path(GlobalSetting.tempPath));
         scoreJob.addCacheFile(new URI(
-                new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]).toString()));
+                new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2]).toString()
+        ));
         scoreJob.addCacheFile(new URI(
-                new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3]).toString()));
+                new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3]).toString()
+        ));
 
         Job sortJob = Job.getInstance(conf, "ScoreSort");
         sortJob.setJarByClass(Score.class);

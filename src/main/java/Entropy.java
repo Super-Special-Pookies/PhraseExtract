@@ -30,7 +30,6 @@ public class Entropy {
         ArrayList<String> outputPathsList = generateOutputPathsList(args[1], 4);
         Configuration conf = new Configuration();
 
-
         // preWordEntropyJob
         Job preWordEntropyJob = Job.getInstance(conf, "preWordEntropyJob");
         preWordEntropyJob.setJarByClass(Entropy.class);

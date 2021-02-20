@@ -57,7 +57,6 @@ public class Score {
         if (scoreJob.waitForCompletion(true)) {
             sortJob.waitForCompletion(true);
         }
-
         System.exit(0);
     }
 
@@ -114,13 +113,7 @@ public class Score {
             URI PostSegmentEntropyFile = context.getCacheFiles()[1];
             List<String> PreSegmentEntropy = readCache(conf, PreSegmentEntropyFile);
             List<String> PostSegmentEntropy = readCache(conf, PostSegmentEntropyFile);
-//            List<String> PreSegmentEntropy = Utils.readLines(
-//                    new Path(GlobalSetting.PreSegmentEntropyPath, GlobalSetting.inputFilesNameList[2])
-//            );
-//            List<String> PostSegmentEntropy = Utils.readLines(
-//                    new Path(GlobalSetting.PostSegmentEntropyPath, GlobalSetting.inputFilesNameList[3])
-//            );
-//
+
             for (String line : PreSegmentEntropy) {
                 String[] tempSplitList = line.split("\t");
                 PreSegmentEntropyMap.put(tempSplitList[0], Double.parseDouble(tempSplitList[1]));
@@ -130,7 +123,6 @@ public class Score {
                 String[] tempSplitList = line.split("\t");
                 PostSegmentEntropyMap.put(tempSplitList[0], Double.parseDouble(tempSplitList[1]));
             }
-
         }
 
         public void reduce(Text key, Iterable<DoubleWritable> values,
