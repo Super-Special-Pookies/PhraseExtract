@@ -2,7 +2,8 @@ final class GlobalSetting {
     final static String concatFlagForWord = "&";
     final static String concatFlagForPair = "#";
     final static String punctuationFlag = "符号";
-    final static int filterFrequencyLimit = 0;
+    final static String sumFlag = "@SumFlag@";
+    final static int filterFrequencyLimit = 10;
     final static String tempPath = "temp";
     final static String PMIPath = "PMI";
     final static String PreEntropyPath = "PreEntropy";

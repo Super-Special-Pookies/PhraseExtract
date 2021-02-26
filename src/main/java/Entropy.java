@@ -1,4 +1,5 @@
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
@@ -13,22 +14,22 @@ import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
 
 public class Entropy {
-
-    private final static String concatFlagForPair = GlobalSetting.concatFlagForPair;
-    private final static String concatFlagForWord = GlobalSetting.concatFlagForWord;
-    private final static String punctuationFlag = GlobalSetting.punctuationFlag;
-    private final static int filterFrequencyLimit = GlobalSetting.filterFrequencyLimit;
-
-
     public static void main(String[] args) throws Exception {
 
         ArrayList<String> outputPathsList = generateOutputPathsList(args[1], 4);
         Configuration conf = new Configuration();
+        conf.set("concatFlagForWord", GlobalSetting.concatFlagForWord);
+        conf.set("concatFlagForPair", GlobalSetting.concatFlagForPair);
+        conf.set("punctuationFlag", GlobalSetting.concatFlagForWord);
+        conf.set("filterFrequencyLimit", String.valueOf(GlobalSetting.filterFrequencyLimit));
+        FileSystem fileSystem = FileSystem.get(new URI(args[0]), conf);
+
 
         // preWordEntropyJob
         Job preWordEntropyJob = Job.getInstance(conf, "preWordEntropyJob");
@@ -90,6 +91,9 @@ public class Entropy {
         FileInputFormat.addInputPath(postWordSegmentEntropyJob, new Path(args[0]));
         FileOutputFormat.setOutputPath(postWordSegmentEntropyJob, new Path(outputPathsList.get(3)));
 
+        for (int i = 0; i < 4; i++) {
+            fileSystem.delete(new Path(outputPathsList.get(i)), true);
+        }
         preWordSegmentEntropyJob.submit();
         postWordSegmentEntropyJob.submit();
         preWordEntropyJob.submit();
@@ -123,6 +127,10 @@ public class Entropy {
 
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
+            String concatFlagForWord = context.getConfiguration().get("concatFlagForWord");
+            String concatFlagForPair = context.getConfiguration().get("concatFlagForPair");
+            String punctuationFlag = context.getConfiguration().get("punctuationFlag");
+
             List<String> splitText = Utils.splitLine(value);
 
             for (int i = 1; i + 1 < splitText.size(); i++) {
@@ -148,6 +156,9 @@ public class Entropy {
 
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
+            String concatFlagForWord = context.getConfiguration().get("concatFlagForWord");
+            String concatFlagForPair = context.getConfiguration().get("concatFlagForPair");
+            String punctuationFlag = context.getConfiguration().get("punctuationFlag");
 
             List<String> splitText = Utils.splitLine(value);
             for (int i = 0; i < splitText.size() - 2; i++) {
@@ -174,6 +185,9 @@ public class Entropy {
 
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
+            String concatFlagForPair = context.getConfiguration().get("concatFlagForPair");
+            String punctuationFlag = context.getConfiguration().get("punctuationFlag");
+
             List<String> splitText = Utils.splitLine(value);
 
             for (int i = 1; i < splitText.size(); i++) {
@@ -198,6 +212,8 @@ public class Entropy {
 
         public void map(Object key, Text value, Context context
         ) throws IOException, InterruptedException {
+            String concatFlagForPair = context.getConfiguration().get("concatFlagForPair");
+            String punctuationFlag = context.getConfiguration().get("punctuationFlag");
             List<String> splitText = Utils.splitLine(value);
 
             for (int i = 0; i + 1 < splitText.size(); i++) {
@@ -236,7 +252,7 @@ public class Entropy {
             extends HashPartitioner<Text, IntWritable> {
         @Override
         public int getPartition(Text key, IntWritable value, int numReduceTasks) {
-            String concatWords = key.toString().split(concatFlagForPair)[0];
+            String concatWords = key.toString().split(GlobalSetting.concatFlagForPair)[0];
             return super.getPartition(new Text(concatWords), value, numReduceTasks);
         }
     }
@@ -244,32 +260,31 @@ public class Entropy {
 
     public static class FrequencyCombinationReducer
             extends Reducer<Text, IntWritable, Text, Text> {
-        // Combine: (Text key, IntWritable value) -> emit: (key, sum)
+        // Reducer: (Text key, IntWritable value) -> emit: (key, sum)
         private String pastConcatWords = null;                     // Record the Concat Words
-        //        private String emitOutput = "";
         private int sumConcatWords = 0;
         private double score = 0;
+        private int filterFrequencyLimit = 0;
 
         public void reduce(Text key, Iterable<IntWritable> values,
                            Context context
         ) throws IOException, InterruptedException {
+            String concatFlagForPair = context.getConfiguration().get("concatFlagForPair");
+            filterFrequencyLimit = Integer.parseInt(context.getConfiguration().get("filterFrequencyLimit"));
+
             String[] stringLists = key.toString().split(concatFlagForPair);
             String concatWords = stringLists[0];
-//            String neighbourWords = stringLists[1];
             if (null == pastConcatWords) {
                 pastConcatWords = concatWords;
             }
-
+            // 统计相同concatWords的信息熵
             if (!concatWords.equals(pastConcatWords)) {
                 if (sumConcatWords >= filterFrequencyLimit) {
-//                    emitOutput = ":" + sumConcatWords + ";" + emitOutput;
                     score = -score / sumConcatWords + Math.log(sumConcatWords);
                     context.write(new Text(pastConcatWords), new Text(String.valueOf(score)));
                 }
-
                 // clear
                 pastConcatWords = concatWords;
-//                emitOutput = "";
                 sumConcatWords = 0;
                 score = 0;
             }
@@ -278,14 +293,13 @@ public class Entropy {
             for (IntWritable val : values) {
                 count += val.get();
             }
-//            emitOutput += neighbourWords + ":" + count + ";";
             sumConcatWords += count;
             score += Math.log(count) * count;
         }
 
+        // 处理最后一组
         public void cleanup(Context context) throws IOException, InterruptedException {
             if (pastConcatWords != null && sumConcatWords >= filterFrequencyLimit) {
-//                emitOutput = ":" + sumConcatWords + ";" + emitOutput;
                 score = score / sumConcatWords + Math.log(sumConcatWords);
                 context.write(new Text(pastConcatWords), new Text(String.valueOf(score)));
             }

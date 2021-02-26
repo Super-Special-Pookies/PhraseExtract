@@ -17,6 +17,11 @@ public class Main {
 
     public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException, URISyntaxException {
         Configuration conf = new Configuration();
+        conf.set("concatFlagForWord", GlobalSetting.concatFlagForWord);
+        conf.set("concatFlagForPair", GlobalSetting.concatFlagForPair);
+        conf.set("punctuationFlag", GlobalSetting.concatFlagForWord);
+        conf.set("filterFrequencyLimit", String.valueOf(GlobalSetting.filterFrequencyLimit));
+        conf.set("sumFlag", GlobalSetting.sumFlag);
 
         FileSystem fileSystem = FileSystem.get(new URI(args[0]), conf);
         Utils.setFileSystem(fileSystem);
@@ -35,6 +40,12 @@ public class Main {
         FileInputFormat.addInputPath(tempJob, new Path(args[0]));
         FileOutputFormat.setOutputPath(tempJob, new Path(GlobalSetting.tempPath));
 
+        fileSystem.delete(new Path(GlobalSetting.tempPath), true);
+        tempJob.waitForCompletion(true);
+
+        double sumWord = PMI.getSumWord(fileSystem, new Path(GlobalSetting.tempPath + "/part-r-00000"));
+        conf.set("sumWord", String.valueOf(sumWord));
+
         Job PMIJob = Job.getInstance(conf, "PMIJob");
         PMIJob.setJarByClass(PMI.class);
         PMIJob.setMapperClass(PMI.NormalMapper.class);
@@ -45,12 +56,9 @@ public class Main {
         FileInputFormat.addInputPath(PMIJob, new Path(GlobalSetting.tempPath + "/part-r-00000"));
         FileOutputFormat.setOutputPath(PMIJob, new Path(GlobalSetting.PMIPath));
 
-        fileSystem.delete(new Path(GlobalSetting.tempPath), true);
         fileSystem.delete(new Path(GlobalSetting.PMIPath), true);
 
-        if (tempJob.waitForCompletion(true)) {
-            PMIJob.waitForCompletion(true);
-        }
+        PMIJob.waitForCompletion(true);
 
         // preWordEntropyJob
         Job preWordEntropyJob = Job.getInstance(conf, "preWordEntropyJob");
